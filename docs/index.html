@@ -7,16 +7,17 @@
 </head>
 <body>
   <div class="page">
-    <h1>Sudoku SAT Solver (via SAT)</h1>
+    <h1>Sudoku SAT Solver</h1>
     <p>
-      Enter a 9x9 Sudoku puzzle. Use 0 or . for blank cells.
-      Then click "Solve with SAT" to solve it in your browser using a Boolean SAT solver.
+      Enter a 9×9 Sudoku puzzle. Use 0 or . for blank cells.
+      Then choose “Solve with SAT” or “Count All Solutions”.
     </p>
 
     <div id="controls">
       <button id="load-example">Load Example Puzzle</button>
       <button id="clear-grid">Clear</button>
       <button id="solve">Solve with SAT</button>
+      <button id="count-all">Count All Solutions</button>
     </div>
 
     <div id="grid" class="grid"></div>
@@ -27,10 +28,13 @@
     <div id="solution" class="solution-grid"></div>
 
     <p class="footer">
-      Solver and encoding implemented in JavaScript using a basic DPLL-style SAT solver.
+      Browser-based Sudoku SAT Solver implemented in JavaScript (DPLL).
     </p>
   </div>
 
+  <!-- load scripts IN ORDER — this is CRITICAL -->
+  <script type="module" src="sudoku-encode.js"></script>
+  <script type="module" src="browser-sat.js"></script>
   <script type="module" src="sudoku-app.js"></script>
 </body>
 </html>

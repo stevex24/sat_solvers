@@ -1,87 +1,90 @@
 // browser-sat.js
-//
-// Tiny SAT solver with support for:
-//  - solveOne(cnf, numVars)
-//  - solveAll(cnf, numVars, limit)
-//
-// Variables are 1..numVars, clauses = array of arrays of ints.
-// Example clause: [1, -3, 4]
 
-export function solveOne(cnf, numVars) {
-    const assignment = new Array(numVars + 1).fill(0); // 0 = unassigned
+export function solveOne(clauses, numVars) {
+  return dpll(clauses, new Array(numVars+1).fill(0));
+}
 
-    function backtrack(idx) {
-        if (idx > numVars) {
-            return checkCNF(cnf, assignment) ? assignment.slice() : null;
-        }
-        if (assignment[idx] !== 0) return backtrack(idx + 1);
+export function solveAll(clauses, numVars, limit = Infinity) {
+  let solutions = [];
+  let assign = new Array(numVars+1).fill(0);
 
-        assignment[idx] = 1;
-        if (partialOK(cnf, assignment)) {
-            const r = backtrack(idx + 1);
-            if (r) return r;
-        }
-
-        assignment[idx] = -1;
-        if (partialOK(cnf, assignment)) {
-            const r = backtrack(idx + 1);
-            if (r) return r;
-        }
-
-        assignment[idx] = 0;
-        return null;
+  function search(cls) {
+    if (solutions.length >= limit) return;
+    let sol = dpll(cls, assign);
+    if (sol) {
+      solutions.push(sol.slice());
+      // Block this solution
+      let block = [];
+      for (let v = 1; v <= numVars; v++) {
+        if (sol[v] === 1) block.push(-v);
+        else block.push(v);
+      }
+      let newCls = cls.concat([block]);
+      search(newCls);
     }
+  }
 
-    return backtrack(1);
+  search(clauses);
+  return solutions;
 }
 
-export function solveAll(cnf, numVars, maxSolutions = Infinity) {
-    const solutions = [];
-    const assignment = new Array(numVars + 1).fill(0);
+function dpll(clauses, assignment) {
+  while (true) {
+    let unit = findUnit(clauses);
+    if (!unit) break;
+    propagate(unit, clauses, assignment);
+  }
 
-    function backtrack(idx) {
-        if (solutions.length >= maxSolutions) return;
+  if (clauses.some(cl => cl.length === 0)) return null;
 
-        if (idx > numVars) {
-            if (checkCNF(cnf, assignment)) {
-                solutions.push(assignment.slice());
-            }
-            return;
-        }
+  if (clauses.length === 0) return assignment.slice();
 
-        if (assignment[idx] !== 0) {
-            backtrack(idx + 1);
-            return;
-        }
+  let v = chooseVar(clauses, assignment);
 
-        assignment[idx] = 1;
-        if (partialOK(cnf, assignment)) backtrack(idx + 1);
+  let saved = saveClauses(clauses);
 
-        assignment[idx] = -1;
-        if (partialOK(cnf, assignment)) backtrack(idx + 1);
+  assignment[v] = 1;
+  let cls1 = simplifyClauses(saved, v);
+  let r1 = dpll(cls1, assignment);
+  if (r1) return r1;
 
-        assignment[idx] = 0;
+  assignment[v] = -1;
+  let cls2 = simplifyClauses(saved, -v);
+  let r2 = dpll(cls2, assignment);
+  if (r2) return r2;
+
+  assignment[v] = 0;
+  return null;
+}
+
+function findUnit(clauses) {
+  for (let c of clauses) if (c.length === 1) return c[0];
+  return null;
+}
+
+function propagate(lit, clauses, assignment) {
+  let v = Math.abs(lit);
+  assignment[v] = lit > 0 ? 1 : -1;
+}
+
+function chooseVar(clauses, assignment) {
+  for (let c of clauses) {
+    for (let lit of c) {
+      if (assignment[Math.abs(lit)] === 0) return Math.abs(lit);
     }
-
-    backtrack(1);
-    return solutions;
+  }
+  return 1;
 }
 
-/*************** CNF Utilities ****************/
-
-function checkCNF(cnf, a) {
-    return cnf.every(cl => cl.some(lit => a[Math.abs(lit)] === Math.sign(lit)));
+function saveClauses(cls) {
+  return cls.map(c => c.slice());
 }
 
-function partialOK(cnf, a) {
-    return cnf.every(cl => {
-        let unassigned = false;
-        for (const lit of cl) {
-            const v = a[Math.abs(lit)];
-            if (v === 0) unassigned = true;
-            if (v === Math.sign(lit)) return true;
-        }
-        return unassigned;
-    });
+function simplifyClauses(cls, lit) {
+  let v = Math.abs(lit);
+  return cls
+    .map(c => c.slice())
+    .filter(c => !c.includes(lit))
+    .map(c => c.filter(x => x !== -lit));
 }
 
