@@ -3,79 +3,144 @@ import { solveCNF } from "./sat.js";
 import { decodeSudoku } from "./util/decodeSudoku.js";
 import { printGrid } from "./util/printGrid.js";
 
-const args = process.argv.slice(2);
-const countAll = args.includes("--count");
+// Helper: pretty-print the initial puzzle
+function printInitialGrid(lines) {
+  console.log("Initial Sudoku Puzzle:\n");
+  for (const line of lines) {
+    console.log(line.split("").join(" "));
+  }
+  console.log("\n-----------------------------------------\n");
+}
 
-const puzzle = fs.readFileSync("puzzles/example-sudoku.txt", "utf8")
+// -------------------------------------------------------------------
+// Read puzzle from file
+// -------------------------------------------------------------------
+const lines = fs
+  .readFileSync("puzzles/example-sudoku.txt", "utf8")
   .trim()
-  .split("\n")
-  .map(row => row.trim().split("").map(c => Number(c)));
+  .split(/\s+/);
 
-function varID(r,c,d){ return (r-1)*81 + (c-1)*9 + d; }
+// Print the input puzzle
+printInitialGrid(lines);
 
-let clauses = [];
+// -------------------------------------------------------------------
+// Build CNF encoding
+// -------------------------------------------------------------------
 
-// Cell constraints
-for (let r=1; r<=9; r++){
-  for (let c=1; c<=9; c++){
-    // At least one digit
-    clauses.push(Array.from({length:9},(_,i)=>varID(r,c,i+1)));
+function varNum(r, c, d) {
+  // r,c,d all in [1..9]
+  return (r - 1) * 81 + (c - 1) * 9 + d;
+}
 
-    // At most one
-    for (let d1=1; d1<=9; d1++)
-      for (let d2=d1+1; d2<=9; d2++)
-        clauses.push([-varID(r,c,d1), -varID(r,c,d2)]);
+const clauses = [];
+const numVars = 9 * 9 * 9;
+
+// Each cell has at least one digit
+for (let r = 1; r <= 9; r++) {
+  for (let c = 1; c <= 9; c++) {
+    const clause = [];
+    for (let d = 1; d <= 9; d++) {
+      clause.push(varNum(r, c, d));
+    }
+    clauses.push(clause);
+  }
+}
+
+// Each cell has at most one digit
+for (let r = 1; r <= 9; r++) {
+  for (let c = 1; c <= 9; c++) {
+    for (let d1 = 1; d1 <= 9; d1++) {
+      for (let d2 = d1 + 1; d2 <= 9; d2++) {
+        clauses.push([-varNum(r, c, d1), -varNum(r, c, d2)]);
+      }
+    }
   }
 }
 
 // Row constraints
-for (let r=1; r<=9; r++){
-  for (let d=1; d<=9; d++){
-    clauses.push(Array.from({length:9},(_,i)=>varID(r,i+1,d)));
-    for (let c1=1; c1<=9; c1++)
-      for (let c2=c1+1; c2<=9; c2++)
-        clauses.push([-varID(r,c1,d), -varID(r,c2,d)]);
+for (let r = 1; r <= 9; r++) {
+  for (let d = 1; d <= 9; d++) {
+    const clause = [];
+    for (let c = 1; c <= 9; c++) {
+      clause.push(varNum(r, c, d));
+    }
+    clauses.push(clause);
+
+    for (let c1 = 1; c1 <= 9; c1++) {
+      for (let c2 = c1 + 1; c2 <= 9; c2++) {
+        clauses.push([-varNum(r, c1, d), -varNum(r, c2, d)]);
+      }
+    }
   }
 }
 
 // Column constraints
-for (let c=1; c<=9; c++){
-  for (let d=1; d<=9; d++){
-    clauses.push(Array.from({length:9},(_,i)=>varID(i+1,c,d)));
-    for (let r1=1; r1<=9; r1++)
-      for (let r2=r1+1; r2<=9; r2++)
-        clauses.push([-varID(r1,c,d), -varID(r2,c,d)]);
+for (let c = 1; c <= 9; c++) {
+  for (let d = 1; d <= 9; d++) {
+    const clause = [];
+    for (let r = 1; r <= 9; r++) {
+      clause.push(varNum(r, c, d));
+    }
+    clauses.push(clause);
+
+    for (let r1 = 1; r1 <= 9; r1++) {
+      for (let r2 = r1 + 1; r2 <= 9; r2++) {
+        clauses.push([-varNum(r1, c, d), -varNum(r2, c, d)]);
+      }
+    }
   }
 }
 
-// Block constraints
-for (let br=0; br<3; br++){
-  for (let bc=0; bc<3; bc++){
-    for (let d=1; d<=9; d++){
+// Block constraints (3x3)
+for (let br = 0; br < 3; br++) {
+  for (let bc = 0; bc < 3; bc++) {
+    for (let d = 1; d <= 9; d++) {
+      const clause = [];
+      for (let r = 1 + br * 3; r <= 3 + br * 3; r++) {
+        for (let c = 1 + bc * 3; c <= 3 + bc * 3; c++) {
+          clause.push(varNum(r, c, d));
+        }
+      }
+      clauses.push(clause);
+
       const cells = [];
-      for (let r=1; r<=3; r++)
-        for (let c=1; c<=3; c++)
-          cells.push(varID(3*br+r, 3*bc+c, d));
+      for (let r = 1 + br * 3; r <= 3 + br * 3; r++) {
+        for (let c = 1 + bc * 3; c <= 3 + bc * 3; c++) {
+          cells.push([r, c]);
+        }
+      }
 
-      clauses.push(cells);
-
-      for (let i=0; i<9; i++)
-        for (let j=i+1; j<9; j++)
-          clauses.push([-cells[i], -cells[j]]);
+      for (let i = 0; i < cells.length; i++) {
+        for (let j = i + 1; j < cells.length; j++) {
+          const [r1, c1] = cells[i];
+          const [r2, c2] = cells[j];
+          clauses.push([-varNum(r1, c1, d), -varNum(r2, c2, d)]);
+        }
+      }
     }
   }
 }
 
-// Add puzzle clues
-for (let r=1; r<=9; r++){
-  for (let c=1; c<=9; c++){
-    if (puzzle[r-1][c-1] !== 0) {
-      clauses.push([ varID(r,c,puzzle[r-1][c-1]) ]);
+// -------------------------------------------------------------------
+// Prefilled digits (input puzzle)
+// -------------------------------------------------------------------
+
+for (let r = 1; r <= 9; r++) {
+  const row = lines[r - 1];
+  for (let c = 1; c <= 9; c++) {
+    const ch = row[c - 1];
+    if (ch !== "0") {
+      const d = Number(ch);
+      clauses.push([varNum(r, c, d)]);
     }
   }
 }
 
-const numVars = 9*9*9;
+// -------------------------------------------------------------------
+// Solve or enumerate
+// -------------------------------------------------------------------
+
+const countAll = process.argv.includes("--count");
 
 if (!countAll) {
   const sol = solveCNF(clauses, numVars);
@@ -83,28 +148,45 @@ if (!countAll) {
     console.log("No solution.");
     process.exit(0);
   }
+
   console.log("Solved Sudoku:\n");
   printGrid(decodeSudoku(sol.model));
   process.exit(0);
 }
 
-// Enumerate all solutions (optional Knuth-style mode)
-let total = 0;
+// Count-all mode
+let solutionCount = 0;
+let sol;
 
-while (true) {
-  const sol = solveCNF(clauses, numVars);
-  if (!sol.sat) break;
-
-  total++;
-  console.log(`Solution ${total}:`);
-  printGrid(decodeSudoku(sol.model));
-  console.log("");
-
-  const block = [];
-  for (let v=1; v<=numVars; v++)
-    block.push(sol.model[v] ? -v : v);
-  clauses.push(block);
+function blockSolution(model) {
+  // Block the EXACT assignment for this solution
+  const used = [];
+  for (let r = 1; r <= 9; r++) {
+    for (let c = 1; c <= 9; c++) {
+      const d = model[varNum(r, c, 1)] ? 1 :
+                model[varNum(r, c, 2)] ? 2 :
+                model[varNum(r, c, 3)] ? 3 :
+                model[varNum(r, c, 4)] ? 4 :
+                model[varNum(r, c, 5)] ? 5 :
+                model[varNum(r, c, 6)] ? 6 :
+                model[varNum(r, c, 7)] ? 7 :
+                model[varNum(r, c, 8)] ? 8 : 9;
+      used.push(varNum(r, c, d));
+    }
+  }
+  // Add a clause blocking this exact assignment
+  clauses.push(used.map((v) => -v));
 }
 
-console.log("Total solutions:", total);
+while (true) {
+  sol = solveCNF(clauses, numVars);
+  if (!sol.sat) break;
+
+  solutionCount++;
+  console.log("Solution", solutionCount + ":\n");
+  printGrid(decodeSudoku(sol.model));
+  blockSolution(sol.model);
+}
+
+console.log("Total solutions:", solutionCount);
 
