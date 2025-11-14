@@ -1,45 +1,36 @@
 // sudoku-app.js
-//
-// Browser-based front-end for the SAT-based Sudoku solver.
-// Uses browser-sat.js (SAT solver) and sudoku-encode.js (CNF encoder).
 
 import { solveOne, solveAll } from "./browser-sat.js";
 import { sudokuToCNF } from "./sudoku-encode.js";
 
-/***********************************************************
- * UI Helpers
- ***********************************************************/
+/************ Helpers ************/
 
-function $(id) {
-  return document.getElementById(id);
+function $(id) { return document.getElementById(id); }
+
+function setStatus(msg, isError = false) {
+  const st = $("status");
+  st.textContent = msg;
+  st.classList.toggle("error", isError);
+  st.classList.toggle("ok", !isError);
 }
 
 function showOutput(text) {
-  $("output").textContent = text;
+  $("solution").textContent = text;     // FIXED: use #solution, not #output
 }
 
-function setStatus(msg, error = false) {
-  const el = $("status");
-  el.textContent = msg;
-  el.classList.toggle("error", error);
-  el.classList.toggle("ok", !error);
-}
-
-/***********************************************************
- * Read / Write Grid
- ***********************************************************/
+/************ Grid Helpers ************/
 
 function readGrid() {
-  const grid = [];
+  const g = [];
   for (let r = 0; r < 9; r++) {
     const row = [];
     for (let c = 0; c < 9; c++) {
       const v = $(`cell-${r}-${c}`).value.trim();
       row.push(v === "" ? 0 : Number(v));
     }
-    grid.push(row);
+    g.push(row);
   }
-  return grid;
+  return g;
 }
 
 function writeGrid(grid) {
@@ -50,24 +41,19 @@ function writeGrid(grid) {
   }
 }
 
-/***********************************************************
- * Format SAT Assignment → 9×9 Solution Grid
- ***********************************************************/
+/************ SAT → Sudoku grid ************/
 
 function assignmentToGrid(sol) {
-  const grid = Array.from({ length: 9 }, () => Array(9).fill(0));
-
+  const g = Array.from({ length: 9 }, () => Array(9).fill(0));
   for (let r = 1; r <= 9; r++) {
     for (let c = 1; c <= 9; c++) {
       for (let v = 1; v <= 9; v++) {
         const idx = (r - 1) * 81 + (c - 1) * 9 + v;
-        if (sol[idx] === 1) {
-          grid[r - 1][c - 1] = v;
-        }
+        if (sol[idx] === 1) g[r - 1][c - 1] = v;
       }
     }
   }
-  return grid;
+  return g;
 }
 
 function formatSolution(sol) {
@@ -75,12 +61,10 @@ function formatSolution(sol) {
   return g.map(row => row.join(" ")).join("\n");
 }
 
-/***********************************************************
- * Load Example Puzzle
- ***********************************************************/
+/************ Load Example ************/
 
 function loadExample() {
-  const example = [
+  const ex = [
     "530070000",
     "600195000",
     "098000060",
@@ -91,24 +75,19 @@ function loadExample() {
     "000419005",
     "000080079"
   ];
-  for (let r = 0; r < 9; r++) {
-    for (let c = 0; c < 9; c++) {
-      const ch = example[r][c];
-      $(`cell-${r}-${c}`).value = ch === "0" ? "" : ch;
-    }
-  }
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      $(`cell-${r}-${c}`).value = ex[r][c] === "0" ? "" : ex[r][c];
+
   setStatus("Example puzzle loaded.");
   showOutput("");
 }
 
-/***********************************************************
- * Solve One Solution
- ***********************************************************/
+/************ Solve ************/
 
 function solvePuzzle() {
   const grid = readGrid();
-  setStatus("Solving...", false);
-  showOutput("");
+  setStatus("Solving...");
 
   const { clauses, numVars } = sudokuToCNF(grid);
   const sol = solveOne(clauses, numVars);
@@ -118,69 +97,56 @@ function solvePuzzle() {
     return;
   }
 
-  const solutionGrid = assignmentToGrid(sol);
-  writeGrid(solutionGrid);
+  const g = assignmentToGrid(sol);
+  writeGrid(g);
 
-  setStatus("Solved successfully!", false);
+  setStatus("Solved!");
   showOutput(formatSolution(sol));
 }
 
-/***********************************************************
- * Count All Solutions
- ***********************************************************/
+/************ Count All Solutions ************/
 
-function countSolutions() {
+function countAll() {
   const grid = readGrid();
-
-  setStatus("Counting solutions...", false);
-  showOutput("Working...\n(This may take a few seconds.)");
+  setStatus("Counting solutions...");
+  showOutput("Working...");
 
   const { clauses, numVars } = sudokuToCNF(grid);
 
-  // yield to UI before SAT search
   setTimeout(() => {
     const sols = solveAll(clauses, numVars);
-    const count = sols.length;
+    let msg = `Total solutions: ${sols.length}\n\n`;
 
-    let out = `Total solutions: ${count}\n\n`;
-    if (count > 0) {
-      out += "First solution:\n";
-      out += formatSolution(sols[0]);
+    if (sols.length > 0) {
+      msg += "First solution:\n";
+      msg += formatSolution(sols[0]);
     }
 
-    setStatus(`Found ${count} solution(s).`, false);
-    showOutput(out);
+    setStatus(`Found ${sols.length} solution(s).`);
+    showOutput(msg);
 
-    if (count > 0) {
-      const firstGrid = assignmentToGrid(sols[0]);
-      writeGrid(firstGrid);
-    }
+    if (sols.length > 0) writeGrid(assignmentToGrid(sols[0]));
 
-  }, 30);
+  }, 50);
 }
 
-/***********************************************************
- * Clear Grid
- ***********************************************************/
+/************ Clear ************/
 
 function clearGrid() {
-  for (let r = 0; r < 9; r++) {
-    for (let c = 0; c < 9; c++) {
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
       $(`cell-${r}-${c}`).value = "";
-    }
-  }
+
   showOutput("");
-  setStatus("Grid cleared.", false);
+  setStatus("Grid cleared.");
 }
 
-/***********************************************************
- * Button Wiring
- ***********************************************************/
+/************ Button Wiring ************/
 
 $("load-example").onclick = loadExample;
 $("clear-grid").onclick = clearGrid;
 $("solve").onclick = solvePuzzle;
-$("count-all").onclick = countSolutions;
+$("count-all").onclick = countAll;
 
-setStatus("Ready!", false);
+setStatus("Ready!");
 
