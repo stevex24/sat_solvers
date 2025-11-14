@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sudoku SAT Solver</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page">
+    <h1>Sudoku SAT Solver (via SAT)</h1>
+    <p>
+      Enter a 9x9 Sudoku puzzle. Use 0 or . for blank cells.
+      Then click "Solve with SAT" to solve it in your browser using a Boolean SAT solver.
+    </p>
+
+    <div id="controls">
+      <button id="load-example">Load Example Puzzle</button>
+      <button id="clear-grid">Clear</button>
+      <button id="solve">Solve with SAT</button>
+    </div>
+
+    <div id="grid" class="grid"></div>
+
+    <div id="status" class="status"></div>
+
+    <h2>Solution</h2>
+    <div id="solution" class="solution-grid"></div>
+
+    <p class="footer">
+      Solver and encoding implemented in JavaScript using a basic DPLL-style SAT solver.
+    </p>
+  </div>
+
+  <script type="module" src="sudoku-app.js"></script>
+</body>
+</html>
+
