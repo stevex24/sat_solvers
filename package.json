@@ -1,0 +1,12 @@
+{
+  "name": "sat-sudoku-pets",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "SAT solver assignment: children/pets puzzle + Sudoku using an in-repo JS SAT solver",
+  "scripts": {
+    "pets": "node src/pets.js",
+    "sudoku": "node src/sudoku.js"
+  },
+  "dependencies": {}
+}
+
