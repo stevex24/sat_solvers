@@ -1,15 +1,36 @@
 // sudoku-app.js
+// Browser UI for Sudoku SAT solver with solution counting.
 
 import { sudokuToCNF } from "./sudoku-encode.js";
 import { solveOne, solveAll } from "./browser-sat.js";
 
+/******************** DOM Helpers ********************/
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function setStatus(msg, isError = false) {
+  const st = $("status");
+  st.textContent = msg;
+  st.classList.toggle("error", isError);
+  st.classList.toggle("ok", !isError);
+}
+
+function clearSolutionDisplay() {
+  $("solution").innerHTML = "";
+}
+
+/******************** Grid Construction & I/O ********************/
+
 function buildGrid() {
-  const grid = document.getElementById("grid");
+  const grid = $("grid");
   grid.innerHTML = "";
 
   for (let r = 0; r < 9; r++) {
     for (let c = 0; c < 9; c++) {
       const input = document.createElement("input");
+      input.type = "text";
       input.maxLength = 1;
       input.dataset.row = r;
       input.dataset.col = c;
@@ -18,48 +39,54 @@ function buildGrid() {
   }
 }
 
+// Read puzzle from the 9x9 input grid
 function readGrid() {
-  const cells = document.querySelectorAll("#grid input");
-  let grid = [];
+  const cells = $("#grid").querySelectorAll("input");
+  const grid = [];
   let k = 0;
 
   for (let r = 0; r < 9; r++) {
-    let row = [];
+    const row = [];
     for (let c = 0; c < 9; c++) {
-      let val = cells[k++].value.trim();
-      row.push(val === "." || val === "0" ? 0 : parseInt(val));
+      const v = cells[k++].value.trim();
+      if (v === "" || v === "." || v === "0") {
+        row.push(0);
+      } else {
+        const n = parseInt(v, 10);
+        row.push(Number.isNaN(n) ? 0 : n);
+      }
     }
     grid.push(row);
   }
   return grid;
 }
 
-function writeSolution(sol) {
-  const out = document.getElementById("solution");
-  out.innerHTML = "";
+// Write a full 9x9 solution grid into the "solution" div
+function writeSolutionFromAssignment(asg) {
+  const container = $("solution");
+  container.innerHTML = "";
 
+  // asg[v] in {-1,0,1}, and variables are encoded as 100*r + 10*c + d
   for (let r = 1; r <= 9; r++) {
     for (let c = 1; c <= 9; c++) {
+      let digit = 0;
       for (let d = 1; d <= 9; d++) {
-        let v = 100*r + 10*c + d;
-        if (sol[v] === 1) {
-          const div = document.createElement("div");
-          div.textContent = d;
-          out.appendChild(div);
+        const v = 100 * r + 10 * c + d;
+        if (asg[v] === 1) {
+          digit = d;
+          break;
         }
       }
+      const cell = document.createElement("div");
+      cell.textContent = digit === 0 ? "" : String(digit);
+      container.appendChild(cell);
     }
   }
 }
 
-function setStatus(msg, isErr=false) {
-  const s = document.getElementById("status");
-  s.textContent = msg;
-  s.classList.toggle("error", isErr);
-  s.classList.toggle("ok", !isErr);
-}
+/******************** Button Actions ********************/
 
-document.getElementById("load-example").onclick = () => {
+function loadExample() {
   const example = [
     "530070000",
     "600195000",
@@ -72,51 +99,73 @@ document.getElementById("load-example").onclick = () => {
     "000080079"
   ];
 
-  const inputs = document.querySelectorAll("#grid input");
+  const cells = $("#grid").querySelectorAll("input");
   let k = 0;
   for (let r = 0; r < 9; r++) {
     for (let c = 0; c < 9; c++) {
-      inputs[k++].value = example[r][c] === "0" ? "" : example[r][c];
+      const ch = example[r][c];
+      cells[k++].value = ch === "0" ? "" : ch;
     }
   }
-};
 
-document.getElementById("clear-grid").onclick = () => {
-  const inputs = document.querySelectorAll("#grid input");
-  for (let i = 0; i < inputs.length; i++) inputs[i].value = "";
-  document.getElementById("solution").innerHTML = "";
-  setStatus("");
-};
+  clearSolutionDisplay();
+  setStatus("Example puzzle loaded.", false);
+}
 
-document.getElementById("solve").onclick = () => {
-  setStatus("Solving...");
+function clearGrid() {
+  const cells = $("#grid").querySelectorAll("input");
+  cells.forEach(cell => (cell.value = ""));
+  clearSolutionDisplay();
+  setStatus("Grid cleared.", false);
+}
+
+function solveOneSolution() {
+  clearSolutionDisplay();
+  setStatus("Solving...", false);
+
   const grid = readGrid();
   const { clauses, numVars } = sudokuToCNF(grid);
   const sol = solveOne(clauses, numVars);
 
   if (!sol) {
-    setStatus("No solution found", true);
+    setStatus("No solution exists.", true);
     return;
   }
 
-  writeSolution(sol);
-  setStatus("Solved!");
-};
+  writeSolutionFromAssignment(sol);
+  setStatus("Solved (1 solution).", false);
+}
 
-document.getElementById("count-all").onclick = () => {
-  setStatus("Counting solutions...");
+function countAllSolutionsAction() {
+  clearSolutionDisplay();
+  setStatus("Counting all solutions (this may take a moment)...", false);
+
   const grid = readGrid();
   const { clauses, numVars } = sudokuToCNF(grid);
 
-  const sols = solveAll(clauses, numVars, Infinity);
-  if (sols.length === 0) {
-    setStatus("No solutions", true);
-    return;
-  }
+  // Yield to the browser so status updates before heavy work
+  setTimeout(() => {
+    const sols = solveAll(clauses, numVars, Infinity);
+    const count = sols.length;
 
-  writeSolution(sols[0]);
-  setStatus(`Total Solutions: ${sols.length}`);
-};
+    if (count === 0) {
+      setStatus("No solutions found.", true);
+      return;
+    }
+
+    writeSolutionFromAssignment(sols[0]);
+    setStatus(`Total solutions: ${count}`, false);
+  }, 20);
+}
+
+/******************** Initialization ********************/
 
 buildGrid();
+
+$("load-example").onclick = loadExample;
+$("clear-grid").onclick = clearGrid;
+$("solve").onclick = solveOneSolution;
+$("count-all").onclick = countAllSolutionsAction;
+
+setStatus("Ready.", false);
 
