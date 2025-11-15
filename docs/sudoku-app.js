@@ -119,13 +119,14 @@ function clearGrid() {
   setStatus("Grid cleared.", false);
 }
 
-function solveOneSolution() {
+async function solveOneSolution() {
   clearSolutionDisplay();
   setStatus("Solving...", false);
 
   const grid = readGrid();
   const { clauses, numVars } = sudokuToCNF(grid);
-  const sol = solveOne(clauses, numVars);
+  const sol = await solveOneAsync(clauses, numVars);
+
 
   if (!sol) {
     setStatus("No solution exists.", true);
@@ -136,7 +137,7 @@ function solveOneSolution() {
   setStatus("Solved (1 solution).", false);
 }
 
-function countAllSolutionsAction() {
+async function countAllSolutionsAction() {
   clearSolutionDisplay();
   setStatus("Counting all solutions (this may take a moment)...", false);
 
@@ -145,7 +146,8 @@ function countAllSolutionsAction() {
 
   // Yield to the browser so status updates before heavy work
   setTimeout(() => {
-    const sols = solveAll(clauses, numVars, 2);  // Hard cap for speed
+    const sols = await solveAllAsync(clauses, numVars, 2);
+
 
     const count = sols.length;
 
