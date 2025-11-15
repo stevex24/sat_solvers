@@ -145,7 +145,8 @@ function countAllSolutionsAction() {
 
   // Yield to the browser so status updates before heavy work
   setTimeout(() => {
-    const sols = solveAll(clauses, numVars, Infinity);
+    const sols = solveAll(clauses, numVars, 2);  // Hard cap for speed
+
     const count = sols.length;
 
     if (count === 0) {
