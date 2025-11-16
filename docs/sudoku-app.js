@@ -1,7 +1,7 @@
-// sudoku-app.js
+// docs/sudoku-app.js
 
 import { sudokuToCNF } from "./sudoku-encode.js";
-import { solveOne, solveAll } from "./browser-sat.js";
+import { solveOne } from "./browser-sat.js";
 
 function buildGrid() {
   const grid = document.getElementById("grid");
@@ -27,7 +27,7 @@ function readGrid() {
     let row = [];
     for (let c = 0; c < 9; c++) {
       let val = cells[k++].value.trim();
-      row.push(val === "." || val === "0" ? 0 : parseInt(val));
+      row.push(val === "." || val === "0" || val === "" ? 0 : parseInt(val, 10));
     }
     grid.push(row);
   }
@@ -41,7 +41,7 @@ function writeSolution(sol) {
   for (let r = 1; r <= 9; r++) {
     for (let c = 1; c <= 9; c++) {
       for (let d = 1; d <= 9; d++) {
-        let v = 100*r + 10*c + d;
+        const v = 100 * r + 10 * c + d;
         if (sol[v] === 1) {
           const div = document.createElement("div");
           div.textContent = d;
@@ -52,11 +52,11 @@ function writeSolution(sol) {
   }
 }
 
-function setStatus(msg, isErr=false) {
+function setStatus(msg, isErr = false) {
   const s = document.getElementById("status");
   s.textContent = msg;
   s.classList.toggle("error", isErr);
-  s.classList.toggle("ok", !isErr);
+  s.classList.toggle("ok", !isErr && msg !== "");
 }
 
 document.getElementById("load-example").onclick = () => {
@@ -76,9 +76,12 @@ document.getElementById("load-example").onclick = () => {
   let k = 0;
   for (let r = 0; r < 9; r++) {
     for (let c = 0; c < 9; c++) {
-      inputs[k++].value = example[r][c] === "0" ? "" : example[r][c];
+      const ch = example[r][c];
+      inputs[k++].value = ch === "0" ? "" : ch;
     }
   }
+
+  setStatus("Example puzzle loaded.");
 };
 
 document.getElementById("clear-grid").onclick = () => {
@@ -89,34 +92,25 @@ document.getElementById("clear-grid").onclick = () => {
 };
 
 document.getElementById("solve").onclick = () => {
-  setStatus("Solving...");
-  const grid = readGrid();
-  const { clauses, numVars } = sudokuToCNF(grid);
-  const sol = solveOne(clauses, numVars);
+  try {
+    setStatus("Solving...");
+    const grid = readGrid();
+    const { clauses, numVars } = sudokuToCNF(grid);
+    const sol = solveOne(clauses, numVars);
 
-  if (!sol) {
-    setStatus("No solution found", true);
-    return;
+    if (!sol) {
+      setStatus("No solution found.", true);
+      return;
+    }
+
+    writeSolution(sol);
+    setStatus("Solved!");
+  } catch (e) {
+    console.error("Error during solve:", e);
+    setStatus("Error during solve (see console).", true);
   }
-
-  writeSolution(sol);
-  setStatus("Solved!");
 };
 
-document.getElementById("count-all").onclick = () => {
-  setStatus("Counting solutions...");
-  const grid = readGrid();
-  const { clauses, numVars } = sudokuToCNF(grid);
-
-  const sols = solveAll(clauses, numVars, Infinity);
-  if (sols.length === 0) {
-    setStatus("No solutions", true);
-    return;
-  }
-
-  writeSolution(sols[0]);
-  setStatus(`Total Solutions: ${sols.length}`);
-};
-
+// Build the initial empty grid on load
 buildGrid();
 
