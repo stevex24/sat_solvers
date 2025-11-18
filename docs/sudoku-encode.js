@@ -1,95 +1,133 @@
 // sudoku-encode.js
-//
-// Correct, complete Sudoku CNF encoder for browser SAT solving.
+// Full correct Sudoku → CNF encoder for the browser
 
 export function sudokuToCNF(grid) {
   const clauses = [];
-  cconst numVars = 999;
+  const numVars = 9 * 9 * 9;   // 729 variables (we use 111..999 form)
 
-  function v(r, c, d) {
+  // Encoding:
+  // V(r, c, d) = 100*r + 10*c + d
+  function V(r, c, d) {
     return 100 * r + 10 * c + d;
   }
 
-  // Cell constraints
+  //////////////////////////////////////////////////////
+  // 1. Each cell has EXACTLY one digit (1–9)
+  //////////////////////////////////////////////////////
+
   for (let r = 1; r <= 9; r++) {
     for (let c = 1; c <= 9; c++) {
-      let atLeast = [];
-      for (let d = 1; d <= 9; d++) atLeast.push(v(r, c, d));
-      clauses.push(atLeast);
 
+      // At least one digit
+      const atleast = [];
+      for (let d = 1; d <= 9; d++) {
+        atleast.push(V(r, c, d));
+      }
+      clauses.push(atleast);
+
+      // At most one digit
       for (let d1 = 1; d1 <= 9; d1++) {
         for (let d2 = d1 + 1; d2 <= 9; d2++) {
-          clauses.push([-v(r, c, d1), -v(r, c, d2)]);
+          clauses.push([-V(r, c, d1), -V(r, c, d2)]);
         }
       }
     }
   }
 
-  // Row constraints
+  //////////////////////////////////////////////////////
+  // 2. Each digit appears once per row
+  //////////////////////////////////////////////////////
+
   for (let r = 1; r <= 9; r++) {
     for (let d = 1; d <= 9; d++) {
-      let atLeast = [];
-      for (let c = 1; c <= 9; c++) atLeast.push(v(r, c, d));
-      clauses.push(atLeast);
 
+      // At least one spot in row r has digit d
+      const atleast = [];
+      for (let c = 1; c <= 9; c++) {
+        atleast.push(V(r, c, d));
+      }
+      clauses.push(atleast);
+
+      // At most one spot
       for (let c1 = 1; c1 <= 9; c1++) {
         for (let c2 = c1 + 1; c2 <= 9; c2++) {
-          clauses.push([-v(r, c1, d), -v(r, c2, d)]);
+          clauses.push([-V(r, c1, d), -V(r, c2, d)]);
         }
       }
     }
   }
 
-  // Column constraints
+  //////////////////////////////////////////////////////
+  // 3. Each digit appears once per column
+  //////////////////////////////////////////////////////
+
   for (let c = 1; c <= 9; c++) {
     for (let d = 1; d <= 9; d++) {
-      let atLeast = [];
-      for (let r = 1; r <= 9; r++) atLeast.push(v(r, c, d));
-      clauses.push(atLeast);
 
+      // At least once
+      const atleast = [];
+      for (let r = 1; r <= 9; r++) {
+        atleast.push(V(r, c, d));
+      }
+      clauses.push(atleast);
+
+      // At most once
       for (let r1 = 1; r1 <= 9; r1++) {
         for (let r2 = r1 + 1; r2 <= 9; r2++) {
-          clauses.push([-v(r1, c, d), -v(r2, c, d)]);
+          clauses.push([-V(r1, c, d), -V(r2, c, d)]);
         }
       }
     }
   }
 
-  // 3x3 blocks
-  for (let br = 0; br < 3; br++) {
-    for (let bc = 0; bc < 3; bc++) {
+  //////////////////////////////////////////////////////
+  // 4. Each digit appears once per 3×3 box
+  //////////////////////////////////////////////////////
+
+  for (let boxR = 0; boxR < 3; boxR++) {
+    for (let boxC = 0; boxC < 3; boxC++) {
+
       for (let d = 1; d <= 9; d++) {
-        let atLeast = [];
-        for (let r = 1; r <= 3; r++) {
-          for (let c = 1; c <= 3; c++) {
-            atLeast.push(v(3 * br + r, 3 * bc + c, d));
-          }
-        }
-        clauses.push(atLeast);
 
+        const atleast = [];
+
+        // Collect cells in this 3x3 box
         const cells = [];
-        for (let r = 1; r <= 3; r++) {
-          for (let c = 1; c <= 3; c++) {
-            cells.push([3 * br + r, 3 * bc + c]);
+        for (let r = 1 + boxR * 3; r <= 3 + boxR * 3; r++) {
+          for (let c = 1 + boxC * 3; c <= 3 + boxC * 3; c++) {
+            cells.push([r, c]);
+            atleast.push(V(r, c, d));
           }
         }
 
+        clauses.push(atleast);
+
+        // At most one
         for (let i = 0; i < cells.length; i++) {
           for (let j = i + 1; j < cells.length; j++) {
             const [r1, c1] = cells[i];
             const [r2, c2] = cells[j];
-            clauses.push([-v(r1, c1, d), -v(r2, c2, d)]);
+            clauses.push([
+              -V(r1, c1, d),
+              -V(r2, c2, d)
+            ]);
           }
         }
       }
     }
   }
 
-  // Input clues
-  for (let r = 1; r <= 9; r++) {
-    for (let c = 1; c <= 9; c++) {
-      const d = grid[r - 1][c - 1];
-      if (d !== 0) clauses.push([v(r, c, d)]);
+  //////////////////////////////////////////////////////
+  // 5. Encode the GIVEN CLUES from the puzzle
+  //////////////////////////////////////////////////////
+
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const val = grid[r][c];
+      if (val !== 0) {
+        // Force V(r+1, c+1, val)
+        clauses.push([V(r + 1, c + 1, val)]);
+      }
     }
   }
 

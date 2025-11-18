@@ -1,8 +1,11 @@
 // sudoku-app.js
-// Complete working browser Sudoku SAT solver (simple one-solution version)
+// UI + SAT solver integration for the browser Sudoku solver
+
+import { sudokuToCNF } from "./sudoku-encode.js";
+import { solveOne } from "./browser-sat.js";
 
 //////////////////////////////////////////////////////
-// Build the 9x9 input grid
+// Build the 9×9 input grid
 //////////////////////////////////////////////////////
 
 function buildGrid() {
@@ -21,18 +24,18 @@ function buildGrid() {
 }
 
 //////////////////////////////////////////////////////
-// Read user input
+// Read the grid into a 2D array
 //////////////////////////////////////////////////////
 
 function readGrid() {
   const cells = document.querySelectorAll("#grid input");
   let grid = [];
-  let idx = 0;
+  let k = 0;
 
   for (let r = 0; r < 9; r++) {
     let row = [];
     for (let c = 0; c < 9; c++) {
-      let v = cells[idx++].value.trim();
+      const v = cells[k++].value.trim();
       if (v === "" || v === "." || v === "0") row.push(0);
       else row.push(parseInt(v));
     }
@@ -42,153 +45,21 @@ function readGrid() {
 }
 
 //////////////////////////////////////////////////////
-// Small DPLL SAT solver
+// Write SAT solution into the output grid
 //////////////////////////////////////////////////////
 
-function solveSAT(clauses, numVars) {
-  let assignment = new Array(numVars + 1).fill(0);
-
-  function valueLit(lit) {
-    let v = Math.abs(lit);
-    let s = assignment[v];
-    if (s === 0) return undefined;
-    return (lit > 0 ? s === 1 : s === -1);
-  }
-
-  function dfs() {
-    // Check clauses
-    for (let clause of clauses) {
-      let satisfied = false;
-      let undec = false;
-
-      for (let lit of clause) {
-        let v = valueLit(lit);
-        if (v === true) {
-          satisfied = true;
-          break;
-        }
-        if (v === undefined) undec = true;
-      }
-
-      if (!satisfied && !undec) return false;
-    }
-
-    // If no unassigned variables → success
-    let v = assignment.indexOf(0);
-    if (v === -1) return true;
-
-    assignment[v] = 1;
-    if (dfs()) return true;
-
-    assignment[v] = -1;
-    if (dfs()) return true;
-
-    assignment[v] = 0;
-    return false;
-  }
-
-  if (dfs()) return assignment;
-  return null;
-}
-
-//////////////////////////////////////////////////////
-// Full Sudoku CNF encoder
-//////////////////////////////////////////////////////
-
-function sudokuToCNF(grid) {
-  let clauses = [];
-  const numVars = 9 * 9 * 9;
-
-  function V(r, c, d) {
-    return 100 * r + 10 * c + d;
-  }
-
-  // ---------- Cell constraints ----------
-  for (let r = 1; r <= 9; r++) {
-    for (let c = 1; c <= 9; c++) {
-      let atLeast = [];
-      for (let d = 1; d <= 9; d++) atLeast.push(V(r, c, d));
-      clauses.push(atLeast);
-
-      for (let d1 = 1; d1 <= 9; d1++)
-        for (let d2 = d1 + 1; d2 <= 9; d2++)
-          clauses.push([-V(r,c,d1), -V(r,c,d2)]);
-    }
-  }
-
-  // ---------- Row constraints ----------
-  for (let r = 1; r <= 9; r++) {
-    for (let d = 1; d <= 9; d++) {
-      let row = [];
-      for (let c = 1; c <= 9; c++) row.push(V(r,c,d));
-      clauses.push(row);
-
-      for (let c1 = 1; c1 <= 9; c1++)
-        for (let c2 = c1+1; c2 <= 9; c2++)
-          clauses.push([-V(r,c1,d), -V(r,c2,d)]);
-    }
-  }
-
-  // ---------- Column constraints ----------
-  for (let c = 1; c <= 9; c++) {
-    for (let d = 1; d <= 9; d++) {
-      let col = [];
-      for (let r = 1; r <= 9; r++) col.push(V(r,c,d));
-      clauses.push(col);
-
-      for (let r1 = 1; r1 <= 9; r1++)
-        for (let r2 = r1+1; r2 <= 9; r2++)
-          clauses.push([-V(r1,c,d), -V(r2,c,d)]);
-    }
-  }
-
-  // ---------- 3×3 block constraints ----------
-  for (let br = 0; br < 3; br++) {
-    for (let bc = 0; bc < 3; bc++) {
-      for (let d = 1; d <= 9; d++) {
-        let block = [];
-        for (let r = br*3 + 1; r <= br*3 + 3; r++)
-          for (let c = bc*3 + 1; c <= bc*3 + 3; c++)
-            block.push(V(r,c,d));
-
-        clauses.push(block);
-
-        for (let i = 0; i < block.length; i++)
-          for (let j = i+1; j < block.length; j++)
-            clauses.push([-block[i], -block[j]]);
-      }
-    }
-  }
-
-  // ---------- Pre-filled clues ----------
-  for (let r = 1; r <= 9; r++) {
-    for (let c = 1; c <= 9; c++) {
-      if (grid[r-1][c-1] !== 0) {
-        let d = grid[r-1][c-1];
-        clauses.push([V(r,c,d)]);
-      }
-    }
-  }
-
-  return { clauses, numVars };
-}
-
-//////////////////////////////////////////////////////
-// Write the solved grid
-//////////////////////////////////////////////////////
-
-function writeSolution(assign) {
+function writeSolution(assignment) {
   const out = document.getElementById("solution");
   out.innerHTML = "";
 
   for (let r = 1; r <= 9; r++) {
     for (let c = 1; c <= 9; c++) {
       for (let d = 1; d <= 9; d++) {
-        const v = 100*r + 10*c + d;
-        if (assign[v] === 1) {
-          const div = document.createElement("div");
-          div.textContent = d;
-          out.appendChild(div);
+        const v = 100 * r + 10 * c + d;
+        if (assignment[v] === 1) {
+          const cell = document.createElement("div");
+          cell.textContent = d;
+          out.appendChild(cell);
         }
       }
     }
@@ -196,7 +67,18 @@ function writeSolution(assign) {
 }
 
 //////////////////////////////////////////////////////
-// UI buttons
+// UI Helpers
+//////////////////////////////////////////////////////
+
+function setStatus(msg, isErr = false) {
+  const s = document.getElementById("status");
+  s.textContent = msg;
+  s.classList.toggle("error", isErr);
+  s.classList.toggle("ok", !isErr);
+}
+
+//////////////////////////////////////////////////////
+// Button Handlers
 //////////////////////////////////////////////////////
 
 document.getElementById("load-example").onclick = () => {
@@ -215,37 +97,39 @@ document.getElementById("load-example").onclick = () => {
   const inputs = document.querySelectorAll("#grid input");
   let k = 0;
 
-  for (let r = 0; r < 9; r++)
-    for (let c = 0; c < 9; c++)
-      inputs[k++].value = example[r][c] === "0" ? "" : example[r][c];
-};
-
-document.getElementById("clear-grid").onclick = () => {
-  document.querySelectorAll("#grid input").forEach(i => i.value = "");
-  document.getElementById("solution").innerHTML = "";
-  document.getElementById("status").textContent = "";
-};
-
-document.getElementById("solve").onclick = () => {
-  const status = document.getElementById("status");
-  status.textContent = "Solving...";
-
-  const grid = readGrid();
-  const { clauses, numVars } = sudokuToCNF(grid);
-  const sol = solveSAT(clauses, numVars);
-
-  if (!sol) {
-    status.textContent = "No solution";
-    status.className = "status error";
-  } else {
-    writeSolution(sol);
-    status.textContent = "Solved!";
-    status.className = "status ok";
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const ch = example[r][c];
+      inputs[k++].value = ch === "0" ? "" : ch;
+    }
   }
 };
 
+document.getElementById("clear-grid").onclick = () => {
+  const inputs = document.querySelectorAll("#grid input");
+  for (let inp of inputs) inp.value = "";
+  document.getElementById("solution").innerHTML = "";
+  setStatus("");
+};
+
+document.getElementById("solve").onclick = () => {
+  setStatus("Solving...");
+
+  const grid = readGrid();
+  const { clauses, numVars } = sudokuToCNF(grid);
+
+  const sol = solveOne(clauses, numVars);
+  if (!sol) {
+    setStatus("No solution found", true);
+    return;
+  }
+
+  writeSolution(sol);
+  setStatus("Solved!");
+};
+
 //////////////////////////////////////////////////////
-// Init
+// Initialize the UI
 //////////////////////////////////////////////////////
 
 buildGrid();
