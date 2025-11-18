@@ -1,0 +1,12 @@
+# Ignore large or unwanted files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.zip
+*.tar.gz
+
+# Ignore temp files
+node_modules/
+.DS_Store
+
