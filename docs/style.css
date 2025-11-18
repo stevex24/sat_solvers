@@ -9,6 +9,14 @@ body {
   margin: auto;
 }
 
+#controls {
+  margin-bottom: 10px;
+}
+
+#controls button {
+  margin-right: 5px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(9, 30px);
