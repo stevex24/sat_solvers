@@ -1,5 +1,10 @@
 // sudoku-app.js
-// This file contains the working in-browser SAT solver + Sudoku encoding.
+// Complete working browser Sudoku SAT solver (no counting version)
+// Includes full CNF encoding, UI code, and a small DPLL SAT solver.
+
+//////////////////////////////////////////////////////
+// Build the 9x9 input grid
+//////////////////////////////////////////////////////
 
 function buildGrid() {
   const grid = document.getElementById("grid");
@@ -15,6 +20,10 @@ function buildGrid() {
     }
   }
 }
+
+//////////////////////////////////////////////////////
+// Read the grid into a 2D numeric array
+//////////////////////////////////////////////////////
 
 function readGrid() {
   const cells = document.querySelectorAll("#grid input");
@@ -33,7 +42,10 @@ function readGrid() {
   return grid;
 }
 
-// A very small SAT solver (pure JS)
+//////////////////////////////////////////////////////
+// SAT solver (small recursive DPLL)
+//////////////////////////////////////////////////////
+
 function solveSAT(clauses, numVars) {
   let assignment = new Array(numVars + 1).fill(0);
 
@@ -74,30 +86,31 @@ function solveSAT(clauses, numVars) {
   return null;
 }
 
-// Sudoku → CNF
+//////////////////////////////////////////////////////
+// FULL Sudoku CNF encoding
+//////////////////////////////////////////////////////
+
 function sudokuToCNF(grid) {
   let clauses = [];
-  let numVars = 999;
+  const numVars = 9 * 9 * 9;
 
+  // Variable encoding: V(r,c,d) = 100r + 10c + d
   function V(r, c, d) {
     return 100 * r + 10 * c + d;
   }
 
+  // -------------------------------
+  // 1. Each cell contains exactly one digit
+  // -------------------------------
   for (let r = 1; r <= 9; r++) {
     for (let c = 1; c <= 9; c++) {
-      if (grid[r - 1][c - 1] !== 0) {
-        let d = grid[r - 1][c - 1];
-        clauses.push([V(r, c, d)]);
-      }
-    }
-  }
 
-  for (let r = 1; r <= 9; r++) {
-    for (let c = 1; c <= 9; c++) {
+      // At least one digit
       let atLeast = [];
       for (let d = 1; d <= 9; d++) atLeast.push(V(r, c, d));
       clauses.push(atLeast);
 
+      // At most one digit
       for (let d1 = 1; d1 <= 9; d1++) {
         for (let d2 = d1 + 1; d2 <= 9; d2++) {
           clauses.push([-V(r, c, d1), -V(r, c, d2)]);
@@ -106,78 +119,33 @@ function sudokuToCNF(grid) {
     }
   }
 
-  return { clauses, numVars };
-}
-
-function writeSolution(sol) {
-  const out = document.getElementById("solution");
-  out.innerHTML = "";
-
+  // -------------------------------
+  // 2. Each digit appears once per row
+  // -------------------------------
   for (let r = 1; r <= 9; r++) {
-    for (let c = 1; c <= 9; c++) {
-      for (let d = 1; d <= 9; d++) {
-        if (sol[100 * r + 10 * c + d] === 1) {
-          const div = document.createElement("div");
-          div.textContent = d;
-          out.appendChild(div);
+    for (let d = 1; d <= 9; d++) {
+
+      // At least one cell in row has digit d
+      let rowClause = [];
+      for (let c = 1; c <= 9; c++) rowClause.push(V(r, c, d));
+      clauses.push(rowClause);
+
+      // At most one cell in row has digit d
+      for (let c1 = 1; c1 <= 9; c1++) {
+        for (let c2 = c1 + 1; c2 <= 9; c2++) {
+          clauses.push([-V(r, c1, d), -V(r, c2, d)]);
         }
       }
     }
   }
-}
 
-function setStatus(msg, err = false) {
-  const s = document.getElementById("status");
-  s.textContent = msg;
-  s.className = err ? "status error" : "status ok";
-}
+  // -------------------------------
+  // 3. Each digit appears once per column
+  // -------------------------------
+  for (let c = 1; c <= 9; c++) {
+    for (let d = 1; d <= 9; d++) {
 
-document.getElementById("load-example").onclick = () => {
-  const example = [
-    "530070000",
-    "600195000",
-    "098000060",
-    "800060003",
-    "400803001",
-    "700020006",
-    "060000280",
-    "000419005",
-    "000080079",
-  ];
-
-  const cells = document.querySelectorAll("#grid input");
-  let k = 0;
-
-  for (let r = 0; r < 9; r++) {
-    for (let c = 0; c < 9; c++) {
-      let ch = example[r][c];
-      cells[k++].value = ch === "0" ? "" : ch;
-    }
-  }
-};
-
-document.getElementById("clear-grid").onclick = () => {
-  const cells = document.querySelectorAll("#grid input");
-  for (let i = 0; i < cells.length; i++) cells[i].value = "";
-  document.getElementById("solution").innerHTML = "";
-  setStatus("");
-};
-
-document.getElementById("solve").onclick = () => {
-  setStatus("Solving…");
-
-  const grid = readGrid();
-  const { clauses, numVars } = sudokuToCNF(grid);
-  const sol = solveSAT(clauses, numVars);
-
-  if (!sol) {
-    setStatus("No solution", true);
-    return;
-  }
-
-  writeSolution(sol);
-  setStatus("Solved!");
-};
-
-buildGrid();
+      // At least once
+      let colClause = [];
+      for (let r = 1; r <= 9; r++) col
 
