@@ -4,7 +4,7 @@
 
 export function sudokuToCNF(grid) {
   const clauses = [];
-  const numVars = 9 * 9 * 9; // r=1..9, c=1..9, d=1..9 encoded as 100*r + 10*c + d
+  cconst numVars = 999;
 
   function v(r, c, d) {
     return 100 * r + 10 * c + d;

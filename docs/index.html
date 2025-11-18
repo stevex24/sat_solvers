@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <title>Sudoku SAT Solver</title>
-  <link rel="stylesheet" href="style.css?v=1" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="page">
-    <h1>Sudoku SAT Solver (SAT-based)</h1>
+    <h1>Sudoku SAT Solver</h1>
     <p>
-      Enter a 9×9 Sudoku puzzle. Use 0 or . for blank cells,
-      or click "Load Example Puzzle" to try a built-in one.
+      Enter a 9×9 Sudoku puzzle. Use 0 or . for blank cells.<br>
+      Then click “Solve with SAT”.
     </p>
 
     <div id="controls">
@@ -27,12 +27,12 @@
     <div id="solution" class="solution-grid"></div>
 
     <p class="footer">
-      Solved in the browser via a DPLL-style SAT solver and CNF encoding.
+      Browser-based Sudoku SAT Solver implemented in JavaScript (DPLL).
     </p>
   </div>
 
-  <!-- Single, self-contained script: NO modules, NO imports -->
-  <script src="sudoku-app.js?v=1"></script>
+  <!-- IMPORTANT: Only ONE script -->
+  <script type="module" src="sudoku-app.js"></script>
 </body>
 </html>
 
