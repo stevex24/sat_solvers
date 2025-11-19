@@ -2,37 +2,78 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Sudoku SAT Solver</title>
+  <title>Sudoku SAT Solver (Browser)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="page">
-    <h1>Sudoku SAT Solver</h1>
-    <p>
-      Enter a 9×9 Sudoku puzzle. Use 0 or . for blank cells.<br>
-      Then click “Solve with SAT”.
-    </p>
+  <main class="app">
+    <header class="app-header">
+      <h1>Sudoku SAT Solver (tinySat.js)</h1>
+      <p class="tagline">
+        Enter a Sudoku puzzle, then solve it using a tiny SAT solver in your browser.
+      </p>
+    </header>
 
-    <div id="controls">
-      <button id="load-example">Load Example Puzzle</button>
-      <button id="clear-grid">Clear</button>
-      <button id="solve">Solve with SAT</button>
-    </div>
+    <section class="puzzle-section">
+      <h2>Input Puzzle</h2>
+      <label for="puzzle-input" class="puzzle-label">
+        Enter 81 characters (digits 1–9, and <code>0</code> or <code>.</code> for blanks). Newlines are ignored.
+      </label>
+      <textarea id="puzzle-input" class="puzzle-input" rows="10" spellcheck="false">
+53..7....
+6..195...
+.98....6.
+8...6...3
+4..8.3..1
+7...2...6
+.6....28.
+...419..5
+....8..79
+      </textarea>
 
-    <div id="grid" class="grid"></div>
+      <div class="button-row">
+        <button id="btn-example" type="button">Reset to Example</button>
+        <button id="btn-solve" type="button">Solve with SAT</button>
+        <button id="btn-clear" type="button">Clear</button>
+      </div>
+    </section>
 
-    <div id="status" class="status"></div>
+    <section class="grid-section">
+      <h2>Grid</h2>
+      <div
+        id="sudoku-grid"
+        class="sudoku-grid"
+        role="grid"
+        aria-label="Sudoku grid"
+      >
+        <!-- sudoku-app.js will populate the 9×9 cells here -->
+      </div>
+    </section>
 
-    <h2>Solution</h2>
-    <div id="solution" class="solution-grid"></div>
+    <section class="status-section">
+      <h2>Status</h2>
+      <div id="status" class="status">
+        Ready. Click “Solve with SAT” to solve the example puzzle.
+      </div>
+    </section>
 
-    <p class="footer">
-      Browser-based Sudoku SAT Solver implemented in JavaScript (DPLL).
-    </p>
-  </div>
+    <section class="cnf-section">
+      <details>
+        <summary>CNF (debug)</summary>
+        <pre id="cnf-debug" class="cnf-debug"></pre>
+      </details>
+    </section>
+  </main>
 
-  <!-- IMPORTANT: Only ONE script -->
-  <script type="module" src="sudoku-app.js"></script>
+  <!-- SAT solver core -->
+  <script src="tinySat.js"></script>
+
+  <!-- Sudoku → CNF encoding helper (no solution counting) -->
+  <script src="sudoku-encode.js"></script>
+
+  <!-- UI + glue code -->
+  <script src="sudoku-app.js"></script>
 </body>
 </html>
 

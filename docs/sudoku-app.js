@@ -1,136 +1,248 @@
-// sudoku-app.js
-// UI + SAT solver integration for the browser Sudoku solver
+(function () {
+  "use strict";
 
-import { sudokuToCNF } from "./sudoku-encode.js";
-import { solveOne } from "./browser-sat.js";
+  const DEFAULT_PUZZLE = [
+    "53..7....",
+    "6..195...",
+    ".98....6.",
+    "8...6...3",
+    "4..8.3..1",
+    "7...2...6",
+    ".6....28.",
+    "...419..5",
+    "....8..79",
+  ].join("\n");
 
-//////////////////////////////////////////////////////
-// Build the 9×9 input grid
-//////////////////////////////////////////////////////
+  const TEXTAREA_ID = "puzzle-input";
+  const GRID_ID = "sudoku-grid";
+  const STATUS_ID = "status";
+  const CNF_DEBUG_ID = "cnf-debug";
 
-function buildGrid() {
-  const grid = document.getElementById("grid");
-  grid.innerHTML = "";
+  let gridCells = []; // 2D array [row][col] -> { wrapper, input }
+  let givenMask = []; // 2D boolean: true if originally given
 
-  for (let r = 0; r < 9; r++) {
-    for (let c = 0; c < 9; c++) {
-      const input = document.createElement("input");
-      input.maxLength = 1;
-      input.dataset.row = r;
-      input.dataset.col = c;
-      grid.appendChild(input);
+  function $(id) {
+    return document.getElementById(id);
+  }
+
+  function init() {
+    const textarea = $(TEXTAREA_ID);
+    const grid = $(GRID_ID);
+
+    if (!textarea || !grid) return;
+
+    // Ensure default puzzle is in the textarea
+    textarea.value = DEFAULT_PUZZLE;
+
+    buildGrid(grid);
+    loadPuzzleIntoGrid(DEFAULT_PUZZLE);
+
+    // Wire buttons
+    const btnExample = $("btn-example");
+    const btnSolve = $("btn-solve");
+    const btnClear = $("btn-clear");
+
+    if (btnExample) {
+      btnExample.addEventListener("click", () => {
+        textarea.value = DEFAULT_PUZZLE;
+        loadPuzzleIntoGrid(DEFAULT_PUZZLE);
+        setStatus("Example puzzle loaded.", "ok");
+      });
+    }
+
+    if (btnClear) {
+      btnClear.addEventListener("click", () => {
+        textarea.value = "";
+        clearGrid();
+        setStatus("Grid cleared. Paste or type a new puzzle.", "");
+        const cnfEl = $(CNF_DEBUG_ID);
+        if (cnfEl) cnfEl.textContent = "";
+      });
+    }
+
+    if (btnSolve) {
+      btnSolve.addEventListener("click", () => {
+        const puzzleText = textarea.value;
+        setStatus("Solving with SAT...", "");
+        // Allow the status text to paint before heavy work
+        setTimeout(() => {
+          solvePuzzle(puzzleText);
+        }, 10);
+      });
     }
   }
-}
 
-//////////////////////////////////////////////////////
-// Read the grid into a 2D array
-//////////////////////////////////////////////////////
+  function buildGrid(gridEl) {
+    gridCells = [];
+    givenMask = [];
 
-function readGrid() {
-  const cells = document.querySelectorAll("#grid input");
-  let grid = [];
-  let k = 0;
+    gridEl.innerHTML = "";
 
-  for (let r = 0; r < 9; r++) {
-    let row = [];
-    for (let c = 0; c < 9; c++) {
-      const v = cells[k++].value.trim();
-      if (v === "" || v === "." || v === "0") row.push(0);
-      else row.push(parseInt(v));
+    for (let r = 0; r < 9; r++) {
+      const rowCells = [];
+      const rowGiven = [];
+
+      for (let c = 0; c < 9; c++) {
+        const cellWrapper = document.createElement("div");
+        cellWrapper.className = "sudoku-cell";
+
+        // Bold borders between 3×3 blocks
+        if (c === 2 || c === 5) cellWrapper.classList.add("box-right");
+        if (r === 2 || r === 5) cellWrapper.classList.add("box-bottom");
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.maxLength = 1;
+        input.setAttribute("inputmode", "numeric");
+        input.dataset.row = String(r);
+        input.dataset.col = String(c);
+
+        cellWrapper.appendChild(input);
+        gridEl.appendChild(cellWrapper);
+
+        rowCells.push({ wrapper: cellWrapper, input });
+        rowGiven.push(false);
+      }
+
+      gridCells.push(rowCells);
+      givenMask.push(rowGiven);
     }
-    grid.push(row);
   }
-  return grid;
-}
 
-//////////////////////////////////////////////////////
-// Write SAT solution into the output grid
-//////////////////////////////////////////////////////
+  function clearGrid() {
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const cell = gridCells[r][c];
+        if (!cell) continue;
+        cell.input.value = "";
+        cell.wrapper.classList.remove("given", "solved");
+      }
+    }
+  }
 
-function writeSolution(assignment) {
-  const out = document.getElementById("solution");
-  out.innerHTML = "";
+  function loadPuzzleIntoGrid(text) {
+    clearGrid();
 
-  for (let r = 1; r <= 9; r++) {
-    for (let c = 1; c <= 9; c++) {
-      for (let d = 1; d <= 9; d++) {
-        const v = 100 * r + 10 * c + d;
-        if (assignment[v] === 1) {
-          const cell = document.createElement("div");
-          cell.textContent = d;
-          out.appendChild(cell);
+    let board;
+    try {
+      board = parseSudokuString(text);
+    } catch (e) {
+      // If parsing fails, just leave the grid empty
+      setStatus("Could not parse puzzle: " + e.message, "error");
+      return;
+    }
+
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const val = board[r][c];
+        const cell = gridCells[r][c];
+        if (!cell) continue;
+
+        if (val >= 1 && val <= 9) {
+          cell.input.value = String(val);
+          cell.wrapper.classList.add("given");
+          cell.wrapper.classList.remove("solved");
+          givenMask[r][c] = true;
+        } else {
+          cell.input.value = "";
+          cell.wrapper.classList.remove("given", "solved");
+          givenMask[r][c] = false;
         }
       }
     }
   }
-}
 
-//////////////////////////////////////////////////////
-// UI Helpers
-//////////////////////////////////////////////////////
-
-function setStatus(msg, isErr = false) {
-  const s = document.getElementById("status");
-  s.textContent = msg;
-  s.classList.toggle("error", isErr);
-  s.classList.toggle("ok", !isErr);
-}
-
-//////////////////////////////////////////////////////
-// Button Handlers
-//////////////////////////////////////////////////////
-
-document.getElementById("load-example").onclick = () => {
-  const example = [
-    "530070000",
-    "600195000",
-    "098000060",
-    "800060003",
-    "400803001",
-    "700020006",
-    "060000280",
-    "000419005",
-    "000080079"
-  ];
-
-  const inputs = document.querySelectorAll("#grid input");
-  let k = 0;
-
-  for (let r = 0; r < 9; r++) {
-    for (let c = 0; c < 9; c++) {
-      const ch = example[r][c];
-      inputs[k++].value = ch === "0" ? "" : ch;
+  function solvePuzzle(text) {
+    let board;
+    try {
+      board = parseSudokuString(text);
+    } catch (e) {
+      setStatus("Error: " + e.message, "error");
+      return;
     }
+
+    let encoded;
+    try {
+      encoded = encodeSudokuToCNF(board);
+    } catch (e) {
+      setStatus("Encoding error: " + e.message, "error");
+      return;
+    }
+
+    const { clauses, numVars } = encoded;
+
+    // Debug CNF stats
+    const cnfEl = $(CNF_DEBUG_ID);
+    if (cnfEl) {
+      cnfEl.textContent =
+        "vars: " +
+        numVars +
+        "\nclauses: " +
+        clauses.length +
+        "\n\n(First few clauses)\n" +
+        clauses
+          .slice(0, 10)
+          .map((cl) => cl.join(" "))
+          .join("\n");
+    }
+
+    // Solve using tinySat
+    let assignment;
+    try {
+      assignment = tinySatSolve(clauses, numVars);
+    } catch (e) {
+      setStatus("SAT solver error: " + e.message, "error");
+      return;
+    }
+
+    if (!assignment) {
+      setStatus("Puzzle is UNSAT (no solution found).", "error");
+      return;
+    }
+
+    // Decode assignment into finished board
+    let solution;
+    try {
+      solution = decodeSudokuFromAssignment(assignment);
+    } catch (e) {
+      setStatus("Decode error: " + e.message, "error");
+      return;
+    }
+
+    // Display solution in 9×9 grid
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const cell = gridCells[r][c];
+        if (!cell) continue;
+        const val = solution[r][c];
+        cell.input.value = String(val);
+
+        if (givenMask[r][c]) {
+          cell.wrapper.classList.add("given");
+          cell.wrapper.classList.remove("solved");
+        } else {
+          cell.wrapper.classList.add("solved");
+        }
+      }
+    }
+
+    setStatus("Solved successfully with SAT.", "ok");
   }
-};
 
-document.getElementById("clear-grid").onclick = () => {
-  const inputs = document.querySelectorAll("#grid input");
-  for (let inp of inputs) inp.value = "";
-  document.getElementById("solution").innerHTML = "";
-  setStatus("");
-};
-
-document.getElementById("solve").onclick = () => {
-  setStatus("Solving...");
-
-  const grid = readGrid();
-  const { clauses, numVars } = sudokuToCNF(grid);
-
-  const sol = solveOne(clauses, numVars);
-  if (!sol) {
-    setStatus("No solution found", true);
-    return;
+  function setStatus(message, kind) {
+    const el = $(STATUS_ID);
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove("error", "ok");
+    if (kind === "error") el.classList.add("error");
+    if (kind === "ok") el.classList.add("ok");
   }
 
-  writeSolution(sol);
-  setStatus("Solved!");
-};
-
-//////////////////////////////////////////////////////
-// Initialize the UI
-//////////////////////////////////////////////////////
-
-buildGrid();
+  // Initialize once DOM is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
 
