@@ -1,273 +1,316 @@
+// sudoku-app.js
+// UI for Sudoku SAT solver using tinySat.js + sudoku-encode.js
+// - Keeps textarea and 9x9 grid in live sync
+// - Provides Beginner / Intermediate / Advanced preset puzzles
+// - Colors solver-filled cells differently from givens for aesthetics.
+
 (function () {
   "use strict";
 
-  const DEFAULT_PUZZLE = [
-    "53..7....",
-    "6..195...",
-    ".98....6.",
-    "8...6...3",
-    "4..8.3..1",
-    "7...2...6",
-    ".6....28.",
-    "...419..5",
-    "....8..79",
-  ].join("\n");
+  // --- DOM lookups ---------------------------------------------------------
 
-  const TEXTAREA_ID = "puzzle-input";
-  const GRID_ID = "sudoku-grid";
-  const STATUS_ID = "status";
-  const CNF_DEBUG_ID = "cnf-debug";
+  const textarea = document.getElementById("sudoku-input");
+  const gridContainer = document.getElementById("grid-container");
+  const cnfOutput = document.getElementById("cnf-output");
 
-  let gridCells = []; // 2D array [row][col] → { wrapper, input }
-  let givenMask = []; // 2D boolean mask: true if cell was originally a given digit
+  const btnBeginner = document.getElementById("btn-beginner");
+  const btnIntermediate = document.getElementById("btn-intermediate");
+  const btnAdvanced = document.getElementById("btn-advanced");
+  const btnSolve = document.getElementById("btn-solve");
+  const btnClear = document.getElementById("btn-clear");
 
-  function $(id) {
-    return document.getElementById(id);
+  // --- Built-in puzzles ----------------------------------------------------
+
+  // 81-character strings, digits 1–9 and '.' for blanks.
+  const PUZZLES = {
+    beginner:
+      "53..7....6..195....98....6.8...6...34..8.3..17...2...6.6....28....419..5....8..79",
+    // The intermediate puzzle may or may not be uniquely solvable; that's fine for SAT.
+    intermediate:
+      "1....7.9.3..2..8..9..1...2.5..9.3..1..8.6..4..2.5..7.8...6..4..4..1..3.2.7....5..",
+    advanced:
+      "..9.....18.2....7..3.6..5....1.9..3.5..3.7..8.4..1.6....8..2.4..7....1.92.....8..",
+  };
+
+  // --- State ---------------------------------------------------------------
+
+  let isSyncing = false; // prevent textarea↔grid feedback loops
+  /** @type {HTMLInputElement[][]} */
+  let gridInputs = [];
+
+  // --- Helpers -------------------------------------------------------------
+
+  /** Remove non sudoku chars; ensure exactly 81 chars, padding with '.' if short. */
+  function normalizeTo81(text) {
+    const chars = text.replace(/[^0-9.]/g, "");
+    if (chars.length >= 81) return chars.slice(0, 81);
+    return chars.padEnd(81, ".");
   }
 
-  // ------------------------------------------------------------
-  // Initialize UI and event listeners
-  // ------------------------------------------------------------
-  function init() {
-    const textarea = $(TEXTAREA_ID);
-    const grid = $(GRID_ID);
-
-    if (!textarea || !grid) return;
-
-    // Load default puzzle into textarea
-    textarea.value = DEFAULT_PUZZLE;
-
-    buildGrid(grid);
-    loadPuzzleIntoGrid(DEFAULT_PUZZLE);
-
-    // === LIVE TEXTAREA → GRID SYNC ===
-    textarea.addEventListener("input", () => {
-      const raw = textarea.value.replace(/\s+/g, "");
-
-      if (raw.length < 81) {
-        clearGrid();
-        setStatus("Enter a full 81-character puzzle.", "");
-        return;
+  /** Convert 81-char puzzle string into a 9×9 array of strings ("", "1".."9"). */
+  function puzzleStringToGrid(str81) {
+    const grid = [];
+    for (let r = 0; r < 9; r++) {
+      const row = [];
+      for (let c = 0; c < 9; c++) {
+        const ch = str81[r * 9 + c];
+        row.push(ch === "." || ch === "0" ? "" : ch);
       }
-
-      if (raw.length > 81) {
-        setStatus("Too many characters — please enter exactly 81.", "error");
-        return;
-      }
-
-      try {
-        loadPuzzleIntoGrid(textarea.value);
-        setStatus("Puzzle loaded from input.", "ok");
-      } catch (e) {
-        setStatus("Invalid puzzle format: " + e.message, "error");
-      }
-    });
-
-    // Buttons
-    const btnExample = $("btn-example");
-    const btnSolve = $("btn-solve");
-    const btnClear = $("btn-clear");
-
-    if (btnExample) {
-      btnExample.addEventListener("click", () => {
-        textarea.value = DEFAULT_PUZZLE;
-        loadPuzzleIntoGrid(DEFAULT_PUZZLE);
-        setStatus("Example puzzle loaded.", "ok");
-      });
+      grid.push(row);
     }
+    return grid;
+  }
 
-    if (btnClear) {
-      btnClear.addEventListener("click", () => {
-        textarea.value = "";
-        clearGrid();
-        setStatus("Grid cleared. Paste or type a new puzzle.", "");
-        const cnfEl = $(CNF_DEBUG_ID);
-        if (cnfEl) cnfEl.textContent = "";
-      });
+  /** Read values from the 9×9 inputs and turn them into an 81-char string. */
+  function gridToPuzzleString() {
+    let s = "";
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const v = gridInputs[r][c].value.trim();
+        s += v === "" ? "." : v;
+      }
     }
+    return s;
+  }
 
-    if (btnSolve) {
-      btnSolve.addEventListener("click", () => {
-        const puzzleText = textarea.value;
-        setStatus("Solving with SAT...", "");
-        // allow UI to update first
-        setTimeout(() => solvePuzzle(puzzleText), 10);
-      });
+  /** Format an 81-char string as 9 lines of 9 characters for the textarea. */
+  function formatPuzzleForTextarea(str81) {
+    const lines = [];
+    for (let r = 0; r < 9; r++) {
+      lines.push(str81.slice(r * 9, r * 9 + 9));
+    }
+    return lines.join("\n");
+  }
+
+  /** Mark givens based on current grid values. */
+  function markGivens() {
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const cell = gridInputs[r][c];
+        if (cell.value !== "") {
+          cell.classList.add("given");
+          cell.classList.remove("solver-fill");
+        } else {
+          cell.classList.remove("given");
+          cell.classList.remove("solver-fill");
+        }
+      }
     }
   }
 
-  // ------------------------------------------------------------
-  // Build 9×9 grid of input cells
-  // ------------------------------------------------------------
-  function buildGrid(gridEl) {
-    gridCells = [];
-    givenMask = [];
+  // --- Sync logic ----------------------------------------------------------
 
-    gridEl.innerHTML = "";
+  /** Update the 9×9 grid from whatever is in the textarea. */
+  function syncGridFromTextarea() {
+    if (!textarea || gridInputs.length === 0) return;
+    isSyncing = true;
+    const norm = normalizeTo81(textarea.value);
+    const grid = puzzleStringToGrid(norm);
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        gridInputs[r][c].value = grid[r][c];
+      }
+    }
+    isSyncing = false;
+  }
+
+  /** Update the textarea whenever a grid cell changes. */
+  function syncTextareaFromGrid() {
+    if (!textarea || isSyncing) return;
+    const str81 = gridToPuzzleString();
+    textarea.value = formatPuzzleForTextarea(str81);
+  }
+
+  // --- Grid construction ---------------------------------------------------
+
+  function buildGrid() {
+    const table = document.createElement("table");
+    table.className = "sudoku-grid";
+    gridInputs = [];
 
     for (let r = 0; r < 9; r++) {
-      const rowCells = [];
-      const rowGiven = [];
+      const tr = document.createElement("tr");
+      const rowInputs = [];
 
       for (let c = 0; c < 9; c++) {
-        const wrapper = document.createElement("div");
-        wrapper.className = "sudoku-cell";
+        const td = document.createElement("td");
 
-        if (c === 2 || c === 5) wrapper.classList.add("box-right");
-        if (r === 2 || r === 5) wrapper.classList.add("box-bottom");
+        // Thick borders between 3×3 blocks.
+        if ((c + 1) % 3 === 0 && c !== 8) {
+          td.classList.add("block-border-right");
+        }
+        if ((r + 1) % 3 === 0 && r !== 8) {
+          td.classList.add("block-border-bottom");
+        }
 
         const input = document.createElement("input");
-        input.type = "text";
-        input.maxLength = 1;
         input.setAttribute("inputmode", "numeric");
+        input.setAttribute("maxlength", "1");
 
-        wrapper.appendChild(input);
-        gridEl.appendChild(wrapper);
+        input.addEventListener("input", (e) => {
+          const cell = e.target;
+          // Allow only digits 1–9.
+          const v = cell.value.replace(/[^1-9]/g, "");
+          cell.value = v;
 
-        rowCells.push({ wrapper, input });
-        rowGiven.push(false);
+          // Manual edits are not "givens" or solver-fills by default.
+          cell.classList.remove("given");
+          cell.classList.remove("solver-fill");
+
+          syncTextareaFromGrid();
+        });
+
+        td.appendChild(input);
+        tr.appendChild(td);
+        rowInputs.push(input);
       }
 
-      gridCells.push(rowCells);
-      givenMask.push(rowGiven);
+      table.appendChild(tr);
+      gridInputs.push(rowInputs);
+    }
+
+    gridContainer.innerHTML = "";
+    gridContainer.appendChild(table);
+  }
+
+  // --- Preset puzzles ------------------------------------------------------
+
+  function loadPuzzle(key) {
+    const raw = PUZZLES[key];
+    if (!raw) return;
+    const norm = normalizeTo81(raw);
+    const formatted = formatPuzzleForTextarea(norm);
+    textarea.value = formatted;
+    syncGridFromTextarea();
+    markGivens();
+  }
+
+  function clearAll() {
+    if (textarea) textarea.value = "";
+    if (cnfOutput) cnfOutput.textContent = "";
+    for (let r = 0; r < gridInputs.length; r++) {
+      for (let c = 0; c < gridInputs[r].length; c++) {
+        const cell = gridInputs[r][c];
+        cell.value = "";
+        cell.classList.remove("given");
+        cell.classList.remove("solver-fill");
+      }
     }
   }
 
-  // ------------------------------------------------------------
-  // Clear grid visuals
-  // ------------------------------------------------------------
-  function clearGrid() {
-    for (let r = 0; r < 9; r++) {
-      for (let c = 0; c < 9; c++) {
-        const cell = gridCells[r][c];
-        if (!cell) continue;
+  // --- SAT integration helpers --------------------------------------------
 
-        cell.input.value = "";
-        cell.wrapper.classList.remove("given", "solved");
-      }
-    }
+  function getEncoderAndSolver() {
+    const encoder =
+      window.encodeSudokuToCNF ||
+      window.sudokuToCNF ||
+      window.encodeSudoku ||
+      null;
+
+    const solver =
+      window.solveSAT ||
+      window.solveSat ||
+      window.tinySolve ||
+      null;
+
+    return { encoder, solver };
   }
 
-  // ------------------------------------------------------------
-  // Load puzzle (string of 81 chars) into the 9×9 grid
-  // ------------------------------------------------------------
-  function loadPuzzleIntoGrid(text) {
-    clearGrid();
+  function handleSolveClick() {
+    if (!textarea) return;
 
-    let board = parseSudokuString(text);
+    const chars = textarea.value.replace(/[^0-9.]/g, "");
+    if (chars.length !== 81) {
+      alert(
+        "Please enter a complete puzzle (81 characters using digits 1–9 and . or 0 for blanks)."
+      );
+      return;
+    }
 
-    for (let r = 0; r < 9; r++) {
-      for (let c = 0; c < 9; c++) {
-        const val = board[r][c];
-        const cell = gridCells[r][c];
+    const { encoder, solver } = getEncoderAndSolver();
+    if (!encoder || !solver) {
+      alert(
+        "Sudoku encoder/solver functions not found.\n\n" +
+          "Make sure:\n" +
+          "- sudoku-encode.js defines window.encodeSudokuToCNF(board).\n" +
+          "- tinySat.js defines window.solveSAT(cnf)."
+      );
+      return;
+    }
 
-        if (val >= 1 && val <= 9) {
-          cell.input.value = String(val);
-          cell.wrapper.classList.add("given");
-          givenMask[r][c] = true;
-        } else {
-          cell.input.value = "";
-          cell.wrapper.classList.remove("given");
-          givenMask[r][c] = false;
+    const grid = puzzleStringToGrid(chars).map((row) =>
+      row.map((ch) => (ch === "" ? 0 : parseInt(ch, 10)))
+    );
+
+    try {
+      const cnf = encoder(grid);
+      const result = solver(cnf);
+
+      if (!result || !result.model) {
+        alert("No solution found by SAT solver.");
+        return;
+      }
+
+      if (cnfOutput) {
+        cnfOutput.textContent =
+          typeof cnf === "string" ? cnf : JSON.stringify(cnf, null, 2);
+      }
+
+      // If the solver returns a 9×9 numeric model, display it.
+      if (Array.isArray(result.model) && result.model.length === 9) {
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            const cell = gridInputs[r][c];
+            const v = result.model[r][c];
+            cell.value = v ? String(v) : "";
+            if (!cell.classList.contains("given")) {
+              cell.classList.add("solver-fill");
+            } else {
+              cell.classList.remove("solver-fill");
+            }
+          }
         }
+        syncTextareaFromGrid();
       }
+      // Otherwise, we assume tinySat.js / sudoku-encode.js already do
+      // their own UI printing based on 'result' and 'cnf'.
+    } catch (err) {
+      console.error(err);
+      alert("Error during SAT solving. See console for details.");
     }
   }
 
-  // ------------------------------------------------------------
-  // Solve puzzle using SAT
-  // ------------------------------------------------------------
-  function solvePuzzle(text) {
-    let board;
-    try {
-      board = parseSudokuString(text);
-    } catch (e) {
-      setStatus("Error: " + e.message, "error");
+  // --- Init ---------------------------------------------------------------
+
+  function init() {
+    if (!textarea || !gridContainer) {
+      console.error("Sudoku SAT: required DOM elements not found.");
       return;
     }
 
-    let encoded;
-    try {
-      encoded = encodeSudokuToCNF(board);
-    } catch (e) {
-      setStatus("Encoding error: " + e.message, "error");
-      return;
-    }
+    buildGrid();
 
-    const { clauses, numVars } = encoded;
+    textarea.addEventListener("input", () => {
+      syncGridFromTextarea();
+      // User-edited puzzles have no default givens; leave classes alone.
+    });
 
-    const cnfEl = $(CNF_DEBUG_ID);
-    if (cnfEl) {
-      cnfEl.textContent =
-        "vars: " +
-        numVars +
-        "\nclauses: " +
-        clauses.length +
-        "\n\n(First few clauses)\n" +
-        clauses
-          .slice(0, 10)
-          .map((cl) => cl.join(" "))
-          .join("\n");
-    }
+    if (btnBeginner)
+      btnBeginner.addEventListener("click", () => loadPuzzle("beginner"));
+    if (btnIntermediate)
+      btnIntermediate.addEventListener("click", () => loadPuzzle("intermediate"));
+    if (btnAdvanced)
+      btnAdvanced.addEventListener("click", () => loadPuzzle("advanced"));
+    if (btnSolve) btnSolve.addEventListener("click", handleSolveClick);
+    if (btnClear) btnClear.addEventListener("click", clearAll);
 
-    let assignment;
-    try {
-      assignment = tinySatSolve(clauses, numVars);
-    } catch (e) {
-      setStatus("SAT solver error: " + e.message, "error");
-      return;
-    }
-
-    if (!assignment) {
-      setStatus("Puzzle is UNSAT (no solution found).", "error");
-      return;
-    }
-
-    let solution;
-    try {
-      solution = decodeSudokuFromAssignment(assignment);
-    } catch (e) {
-      setStatus("Decode error: " + e.message, "error");
-      return;
-    }
-
-    for (let r = 0; r < 9; r++) {
-      for (let c = 0; c < 9; c++) {
-        const val = solution[r][c];
-        const cell = gridCells[r][c];
-
-        cell.input.value = String(val);
-
-        if (givenMask[r][c]) {
-          cell.wrapper.classList.add("given");
-        } else {
-          cell.wrapper.classList.add("solved");
-        }
-      }
-    }
-
-    setStatus("Solved successfully with SAT.", "ok");
+    // Load a friendly puzzle by default and mark its givens.
+    loadPuzzle("beginner");
   }
 
-  // ------------------------------------------------------------
-  // Status helper
-  // ------------------------------------------------------------
-  function setStatus(message, kind) {
-    const el = $(STATUS_ID);
-    if (!el) return;
-    el.textContent = message;
-    el.classList.remove("error", "ok");
-    if (kind === "error") el.classList.add("error");
-    if (kind === "ok") el.classList.add("ok");
-  }
-
-  // ------------------------------------------------------------
-  // Init when DOM is ready
-  // ------------------------------------------------------------
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {
     init();
   }
 })();
-

@@ -170,9 +170,7 @@
             break;
           }
         }
-        // If encoding is correct and solution is valid, digit should be 1..9.
         if (digit === 0) {
-          // Fallback so we never show "all 1s" or garbage
           throw new Error(
             "Decoded assignment is inconsistent (cell with no true digit)."
           );
@@ -190,4 +188,3 @@
   global.encodeSudokuToCNF = encodeSudokuToCNF;
   global.decodeSudokuFromAssignment = decodeSudokuFromAssignment;
 })(this);
-

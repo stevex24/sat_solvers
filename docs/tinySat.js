@@ -4,12 +4,14 @@
   /**
    * tinySatSolve
    * -------------
+   * A simple DPLL-based SAT solver with unit propagation.
+   *
    * @param {number[][]} clauses - CNF as array of clauses, each clause is array of ints
    *                               positive literal: variable index
    *                               negative literal: -variable index
    * @param {number} numVars - number of variables (highest var index)
    * @returns {number[] | null} assignment array of length numVars+1
-   *          where assignment[v] = 1 (true), -1 (false), or 0 (unused)
+   *          where assignment[v] = 1 (true), -1 (false), or 0 (unassigned)
    */
   function tinySatSolve(clauses, numVars) {
     const assignment = new Array(numVars + 1);
@@ -20,10 +22,12 @@
   }
 
   /**
-   * Core DPLL with unit propagation. No fancy heuristics, but fine for Sudoku.
+   * Unit propagation:
+   * Repeatedly enforce unit clauses until no more changes or a conflict is found.
+   *
+   * @returns {boolean} true if consistent, false if a conflict was detected.
    */
-  function dpll(clauses, assignment) {
-    // Unit propagation loop
+  function unitPropagate(clauses, assignment) {
     while (true) {
       let changed = false;
 
@@ -73,10 +77,23 @@
         }
       }
 
-      if (!changed) break;
+      if (!changed) {
+        return true;
+      }
+    }
+  }
+
+  /**
+   * Core DPLL with a very simple variable choice heuristic:
+   * pick the first unassigned variable.
+   */
+  function dpll(clauses, assignment) {
+    // First, propagate all forced assignments.
+    if (!unitPropagate(clauses, assignment)) {
+      return false;
     }
 
-    // Check if all clauses are satisfied
+    // Check if all clauses are satisfied.
     let allSatisfied = true;
     outer: for (let i = 0; i < clauses.length; i++) {
       const clause = clauses[i];
@@ -92,6 +109,9 @@
             clauseSatisfied = true;
             break;
           }
+        } else {
+          // Clause is not yet decided; can't say it's false.
+          continue;
         }
       }
 
@@ -101,43 +121,69 @@
       }
     }
 
-    if (allSatisfied) return true;
+    if (allSatisfied) {
+      return true;
+    }
 
-    // Choose first unassigned variable and branch
-    let varToAssign = 0;
-    for (let v = 1; v < assignment.length; v++) {
-      if (assignment[v] === 0) {
-        varToAssign = v;
+    // Choose the first unassigned variable.
+    let v = 0;
+    for (let i = 1; i < assignment.length; i++) {
+      if (assignment[i] === 0) {
+        v = i;
         break;
       }
     }
 
-    if (varToAssign === 0) {
-      // Should normally mean all clauses are satisfied already
+    if (v === 0) {
+      // No unassigned variables left, but not all clauses satisfied => unsat
+      return false;
+    }
+
+    // Try v = true
+    assignment[v] = 1;
+    if (dpll(clauses, assignment)) {
       return true;
     }
 
-    const saved = assignment.slice();
+    // Backtrack and try v = false
+    assignment[v] = -1;
+    if (dpll(clauses, assignment)) {
+      return true;
+    }
 
-    // Try true
-    assignment[varToAssign] = 1;
-    if (dpll(clauses, assignment)) return true;
-
-    // Backtrack and try false
-    for (let i = 0; i < assignment.length; i++) assignment[i] = saved[i];
-    assignment[varToAssign] = -1;
-    if (dpll(clauses, assignment)) return true;
-
-    // Backtrack to saved state and fail
-    for (let i = 0; i < assignment.length; i++) assignment[i] = saved[i];
+    // Backtrack further
+    assignment[v] = 0;
     return false;
   }
 
-  // Export
-  if (typeof module !== "undefined" && module.exports) {
-    module.exports = { tinySatSolve };
-  } else {
-    global.tinySatSolve = tinySatSolve;
-  }
-})(this);
+  // Export globals for browser
+  global.tinySatSolve = tinySatSolve;
 
+  /**
+   * A convenient wrapper so sudoku-app.js can call window.solveSAT(cnf)
+   * where cnf = { clauses: number[][], numVars: 729 }
+   *
+   * Returns:
+   *   {
+   *      model: 9x9 number[][] | null,
+   *      assignment: number[] | null
+   *   }
+   */
+  global.solveSAT = function (cnf) {
+    const assignment = tinySatSolve(cnf.clauses, cnf.numVars);
+    if (!assignment) return null;
+
+    // Convert assignment → 9×9 board using the encoder's decoder if available.
+    if (typeof global.decodeSudokuFromAssignment === "function") {
+      try {
+        const model = global.decodeSudokuFromAssignment(assignment);
+        return { model, assignment };
+      } catch (e) {
+        console.error("Decoding failed:", e);
+      }
+    }
+
+    // If decoder isn't available, return raw assignment.
+    return { model: null, assignment };
+  };
+})(this);
